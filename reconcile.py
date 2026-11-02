@@ -1,27 +1,47 @@
-#!/usr/bin/env python3
-"""Payment reconciliation.
-
-Reads payments.jsonl and works out how much money we actually collected.
-Run:  python3 reconcile.py
-"""
 import json
+from datetime import datetime
 
-total = 0.0
-count = 0
+latest = {}
 
-with open("payments.jsonl") as f:
-    for line in f:
-        event = json.loads(line)
-        if event["status"] == "success":
-            total += float(event["amount"])
-            count += 1
+with open("payments.jsonl", "r", encoding="utf-8") as file:
+    for line in file:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-with open("expected.txt") as f:
-    expected = int(f.read().strip())
+        if not isinstance(event, dict):
+            continue
+
+        txn_id = event.get("txn_id")
+
+        if not txn_id:
+            continue
+
+        timestamp = datetime.fromisoformat(
+            event["ts"].replace("Z", "+00:00")
+        )
+
+        previous = latest.get(txn_id)
+
+        if previous is None or timestamp >= previous["_timestamp"]:
+            event["_timestamp"] = timestamp
+            latest[txn_id] = event
+
+successful = [
+    event for event in latest.values()
+    if event["status"] == "success"
+]
+
+count = len(successful)
+
+total = sum(float(str(event["amount"]).replace(",", "")) for event in successful)
+
+with open("expected.txt", "r") as file:
+    expected = int(file.read().strip())
 
 if count != expected:
-    print(f"Check failed: counted {count} successful payments, expected {expected}.")
-    print("Something in the data isn't being handled the way the README describes.")
+    print(f"Check failed: counted {count}, expected {expected}.")
 else:
     print(f"Check passed: {count} successful payments.")
     print(f"Your code: KOYA-{round(total)}")
